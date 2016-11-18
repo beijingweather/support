@@ -2,7 +2,7 @@
 import os
 import os.path
 import re
-
+import copy
 """
 Case infomation:
     Case 25: BTS Testability_SysLog - Logging
@@ -40,10 +40,88 @@ Script information:
     Date: 2016/11/16
 """
 
+cpidInfo_file_list = []
+node_id_list = []
+table_list = []
+table_list_1 = []
+table_dict = {}
+table_list_final = []
+cpidInfo_table = {}
+cpidInfo_table_final = {}
+cpidInfo_regex = '.*cpidInfo.*'
+nodeid_regex = '_\d{3}._'
+CPID_regex = '0x.*'
+number_regex = '\d'
+abc_regex = '\s'
+cross_regex = '-*'
+def get_re_object(pattern, line):
+    reg_item = re.compile(pattern, 0)
+    result_item = reg_item.search(line)
+    return result_item
+
+def get_cpidInfo_file_list(targetdir, cpidInfo_file_list):
+    for root, dirs, files in os.walk(targetdir):
+        for file in files:
+            if get_re_object(cpidInfo_regex, file):
+                cpidInfo_file_list.append(os.path.join(root, file))
+    return cpidInfo_file_list
+
+def get_node_id(cpidInfo_file):
+    node_id = get_re_object(nodeid_regex, cpidInfo_file).group().strip('_')
+    return node_id
+
+def find_cpidInfo_table(targetdir, cpidInfo_file_list):
+     cpidInfo_file_list = get_cpidInfo_file_list(targetdir, cpidInfo_file_list)
+     for cpidInfo_file in cpidInfo_file_list:
+         node_id = get_node_id(cpidInfo_file)
+         file = open(cpidInfo_file, 'r')
+         print cpidInfo_file
+         while True:
+             table = file.readline()
+             if table:
+                 table_list = table.strip('     \n').split(' ')
+                 for item in table_list:
+                     if item == '':
+                         continue
+                     else:
+                         table_list_1.append(item)
+                 if get_re_object(CPID_regex, table_list[0]):
+                     if table_list_1:
+                         euName = table_list_1.pop()
+                     if table_list_1:
+                         eeName = table_list_1.pop()
+                     if table_list_1:
+                         euID = table_list_1.pop()
+                     if table_list_1:
+                         CPID = table_list_1.pop()
+                     table_dict['CPID'] = CPID
+                     table_dict['euID'] = euID
+                     table_dict['eeName'] = eeName
+                     table_dict['euName'] = euName
+                     table_list_final.append(copy.deepcopy(table_dict))
+                     table_dict.clear()
+                 else:
+                     while table_list_1:
+                         table_list_1.pop()
+
+             else:
+                 break
+         cpidInfo_table[node_id] = copy.deepcopy(table_list_final)
+         while table_list_final:
+             table_list_final.pop()
+     return cpidInfo_table
+
+def case25(targetdir):
+    for root, dirs, files in os.walk(targetdir):
+        for file in files:
+            find_cpidInfo_table(file)
+
+
+
 
 def case25_open_file_and_check_if_matched_syslog_format(file,is_to_display_blank_lines=False):
     file_dict        =        {}
-    file_list		 =		  []
+    file_list        =        []
     line_num         =        0
     logFile          =        open(file)
     for raw_line in logFile:
@@ -57,13 +135,14 @@ def case25_open_file_and_check_if_matched_syslog_format(file,is_to_display_blank
 
         else:
             splitted_list   = re.split(r'\s',line)
+            hwtype_list     = []
             LOG_NUM         = splitted_list[line_log_offset_definition('lognum')]
             HW_TYPE         = splitted_list[line_log_offset_definition('hwtype')]
             TIME_STAMP      = splitted_list[line_log_offset_definition('timestamp')]
             PID             = splitted_list[line_log_offset_definition('pid')]
             # file_dict[line_num]=splitted_list
             if log_number_checking(LOG_NUM) == 1:
-            	pass
+                pass
             else:
                 file_list.append([line_num, log_number_checking(LOG_NUM),line])
 
@@ -71,12 +150,27 @@ def case25_open_file_and_check_if_matched_syslog_format(file,is_to_display_blank
                 if hwtype_checking_for_RMOD(HW_TYPE.strip()) == 1:
                     pass
                 else:
-                    file_list.append([line_num, hwtype_checking_for_RMOD(HW_TYPE),line])
+                    file_list.append([line_num, hwtype_eename_seperator_checking_for_not_RMOD(HW_TYPE),line])
             else:
-                if hwtype_checking_for_not_RMOD(HW_TYPE.strip()) == 1:
+                if hwtype_eename_seperator_checking_for_not_RMOD(HW_TYPE.strip()) == 1:
                     pass
                 else:
-                    file_list.append([line_num, hwtype_checking_for_not_RMOD(HW_TYPE),line])
+                    file_list.append([line_num, hwtype_eename_seperator_checking_for_not_RMOD(HW_TYPE),line])
+
+            for hwtype_temp in HW_TYPE:
+                hwtype_list.append(hwtype_temp)
+
+            if node_id_checking(hwtype_list[1]) == 1:
+                pass
+            else:
+                file_list.append([line_num, node_id_checking(hwtype_list[1])])
+
+            if domain_id_checking(hwtype_list[2]) == 1:
+                pass
+            else:
+                file_list.append([line_num, domain_id_checking(hwtype_list[2])])    
+
+
                 
     logFile.close()
     return   file_list
@@ -92,10 +186,10 @@ def line_log_offset_definition(name):
 
 def hwtype_offset_definition(name):
     hwtype_offset_definition_dict   =   {
-        hwtype:0,
-        nodeid:1,
-        domainid:2,
-        eename:3
+        'hwtype'    :0,
+        'nodeid'    :1,
+        'domainid'  :2,
+        'eename'    :3
     }
     return int(hwtype_offset_definition_dict.get(name))
 
@@ -117,6 +211,26 @@ def hwtype_error_reasons(name):
     }
     return hwtype_error_reasons_dict.get(name)
 
+def node_id_error_reasons(name):
+    node_id_error_reasons_dict = {
+        'blankstring'           :'Node ID Format Error:The String is blank',
+    }
+    return node_id_error_reasons_dict.get(name)
+
+def domain_id_error_reasons(name):
+    domain_id_error_reasons_dict = {
+        'blankstring'           :'DomainID Format Error:The String is blank',
+        'hex'                   :'DomainID Fomrat Error:There is no hex string'
+    }
+    return domain_id_error_reasons_dict.get(name)
+
+def euname_error_reasons(name):
+    euname_error_reasons_dict = {
+        'blankstring'           :'euName Format Error:The String is blank',
+        'notmatched'            :'euName Fomrat Error:euname of line NOT matched cpid file'
+    }
+    return euname_error_reasons_dict.get(name)
+
 def log_number_checking(hexString):
     if len(hexString) == 2:
         try:
@@ -129,32 +243,42 @@ def log_number_checking(hexString):
     else:
         return log_print(lognum_error_reasons('lengthnotmatched'))
 
-def hwtype_checking_for_not_RMOD(hwtypeString):
+def hwtype_eename_seperator_checking_for_not_RMOD(hwtypeString):
     seperator_string = hwtypeString.count("-")
     splitted_hwtype_list = hwtypeString.split("-")
     if seperator_string == 0 or seperator_string == 2 or seperator_string > 3:
-    	# print log_print(hwtype_error_reasons('seperator'))
+        # print log_print(hwtype_error_reasons('seperator'))
         return log_print(hwtype_error_reasons('seperator'))
-    elif seperator_string == 1 and len(splitted_hwtype_list) == 2:
-        if len(splitted_hwtype_list[0].strip()) != 0 and len(splitted_hwtype_list[1].strip()) != 0:
-            return 1
-        else:
-            return log_print(hwtype_error_reasons('blankstring'))
     else:
-        if len(splitted_hwtype_list[2].strip()) == 1 and hex_to_dec(splitted_hwtype_list[2].strip()) > 15 :
-            return 1
-        elif 
-        else:
-            return  log_print(hwtype_error_reasons('did'))
+        return  1
         
+def domain_id_checking(domainID):
+    if len(domainID) == 0:
+        return log_print(domain_id_error_reasons('blankstring'))
+    elif hex_to_dec(domainID) > 15:
+        return log_print(domain_id_error_reasons('hex'))
+    else:
+        return 1
 
-
+def node_id_checking(nodeID):
+    if len(nodeID) == 0:
+        return log_print(node_id_error_reasons('blankstring'))
+    else:
+        return 1
 
 def hwtype_checking_for_RMOD(hwtypeString):
     if hwtypeString.strip() == "":
         return log_print(hwtype_error_reasons('blankstring'))
     else:
         return 1
+
+def euname_checking(euname,euname_list_from_cpid_file):
+    if len(euname) == 0:
+        return log_print(euname_error_reasons('blankstring'))
+    elif euname in euname_list_from_cpid_file:
+        return 1
+    else:
+        return log_print(euname_error_reasons('notmatched'))
 
 def hex_to_dec(hexString):
     dec_value = int(hexString,16)
@@ -177,25 +301,55 @@ def is_RF_Module_file(file):
     except Exception:
         return False
 
-def eename_match(file_dict):
-	
+def get_eename_from_cpid_file_without_duplication_values(file_dict,file_key):
+    result_list = []
+    result_clear_duplication_list = []
+    for k, v in file_dict.items():
+        if  k == file_key:
+            for content in v:
+                result_list.append(content.get('eeName'))
+    for result_temp in result_list:
+        if not result_temp in result_clear_duplication_list:
+            result_clear_duplication_list.append(result_temp)
+    return result_clear_duplication_list
 
+
+
+
+# def parse_cpid(file):
+#     cpid_dict = {}
+#     cpid_splitted_list = []
+#     rawline_re = r'\s'
+#     cpid = open(file)
+#     for raw in cpid:
+#         raw_list = []
+#         raw_list = re.split(rawline_re,raw)
+#         raw_list.remove('')
+#         raw_list.remove('-----')
+#         cpid_splitted_list.append(raw_list)
+
+#     cpid.close()
+#     return cpid_splitted_list
 
 if __name__ == '__main__':
 #         print key,abc[key]
-    # runtimeFilePath=r'C:\Users\personalpc\Desktop\wmp support\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS_L1143102326_RMOD_L_1_ram_runtime.log'
-    runtimeFilePath=r'C:\Users\personalpc\Desktop\wmp support\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS_L1143102326_RMOD_L_1_ram_runtime.log'
+    runtimeFilePath=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS_L1143102326_RMOD_L_1_ram_runtime.log'
+    cpid=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS3244_120D_runtime_cpidInfo.log'
     # blackboxFilePath=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS3244_1011_blackbox'
     # path=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\Snapshot_MRBTS-3244_FL17_FSM3_9999_161031_033736_eNB2213_20161102-1023\logs\SiteManager.log'
-    # path=r'C:\Users\personalpc\Desktop\wmp support\AfterTLDA\AfterTLDA\merged_dsp_syslogs.log'
+    targetdir=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA'
 #     path=r'C:\Users\personalpc\Desktop\wmp support\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS3244_1011_blackbox'
     # path=r'C:\Users\personalpc\Desktop\wmp support\AfterTLDA\extracted\snapshot.properties'
-    abc = case25_open_file_and_check_if_matched_syslog_format(runtimeFilePath)
+    # abc = case25_open_file_and_check_if_matched_syslog_format(runtimeFilePath,True)
     # is_RF_Module_file(blackboxFilePath)
     # print len(abc)
     # print len(abc)
-    for key in abc:
-        print key
+    # for key in sorted(abc.keys()):
+        # print key,abc[key]
     # compareTimeStamp(runtimeFilePath, blackboxFilePath)    
         # print allStringChecking(abc[key])
         # print dateFormatChecking(abc[key])
+    ab = find_cpidInfo_table(targetdir,cpidInfo_file_list)
+    result = get_eename_from_cpid_file(ab,'120D')
+    print result
+
