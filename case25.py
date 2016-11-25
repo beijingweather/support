@@ -39,9 +39,21 @@ Case infomation:
 
 
 Script information:
-    Revision : 0.2
-    Date: 2016/11/22
+    Revision : 0.3
+        0.3: 
+            1. added new exclued file 'routing'
+            2. FSP file with '12*' checking added
+            3. for case25_F new added parameter 'is_to_generate_txt_report_file' which can generate a txt result when it's set to True
+            4. fix error when call case25_S() function
+
+    Date: 2016/11/25
     Author: Dai Taylor & Yu Yong
+
+    Parameters:
+        case25_F(targetdir, is_to_generate_txt_report_file=True)
+        targetdir                           : is the folder need to be scanned
+        is_to_generate_txt_report_file      : True  - to generate a report result txt file(dict not return) under the 'targetdir' folder named 'case25_F_result.txt'
+                                              False - do not generate a report file, just return a dict, this is default value
 
     Function name:
         case25_S(filename)
@@ -72,14 +84,34 @@ Script information:
     Usage:
 
         #for case25_S()
-        error_list = case25_S(filename)
+
+        ###variables definition
+        targetdir=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA'
+        singlefile=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS3244_1011_runtime\runtime_BTSOM.log'
+
+        ###Generate a dict from CPIDinfo files
+        tep_list = get_cpidInfo_dict_and_euid_node_list(targetdir, cpidInfo_file_list)
+        file_dict_requirement2 = tep_list[0]
+
+        ###pass dict/singlefile to case25_S
+        error_list = case25_S(singlefile,file_dict_requirement2)
         for error_entry in error_list:
             print error_entry
 
         #for case25_F()
+        targetdir=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA'
+        
+        ###just return a dict
         error_dict = case25_F(targetdir)
         for k in sorted(error_dict.keys()):
-            print k, error_dict.get(k)
+            print k
+            for i in abcd.get(k):
+                print i
+
+        ###just generate a result file on 'targetdir' folder, Note: no return value in case "is_to_generate_txt_report_file=True"
+        error_dict = case25_F(targetdir,True)
+
+        ##'case25_F_result.txt' generated under the 'targetdir' folder
 
 
 """
@@ -105,7 +137,6 @@ euID_list = []
 line_num = 0
 node = None
 cpidInfo_file_list = []
-node_id_list = []
 table_list = []
 table_list_1 = []
 table_dict = {}
@@ -194,78 +225,93 @@ def get_cpidInfo_dict_and_euid_node_list(targetdir, cpidInfo_file_list):
     tep_list.append(cpidInfo_table)
     tep_list.append([euID_list, node_id_list])
     return tep_list
-def finial_check_cpidInfo(line_num, result, check_list, line_1):
-    if len(result) == 0:
-        #print line_num, 'did not find euID in cpInfo log', line_1, file
-        wrong_result_list.append([line_num, 'did not find euID in cpInfo log', line_1])
 
+def finial_check_cpidInfo(file, line_num, result, check_list, line_1):
+    wrong_result_list1 = []
+    if len(result) == 0:
+        # print line_num, 'did not find euID in cpInfo log', line_1, file
+        wrong_result_list1.append([line_num, 'did not find euID in cpInfo log', line_1])
     else:
         if check_list[3] in result[0]:
             right_result_list.append([line_num, line_1])
         else:
-            #print line_num, 'eeName Error: eename of line NOT matched cpid file', line_1, file
-            # wrong_result_list.append([line_num, 'eeName Error: eename of line NOT matched cpid file', line_1])
+            print line_num, 'eeName Error: eename of line NOT matched cpid file', line_1, file
+            #wrong_result_list.append([line_num, 'eeName Error: eename of line NOT matched cpid file', line_1])
             pass
         if result[1] in check_list[5]:
             right_result_list.append([line_num, line_1])
         else:
-            #print line_num, 'euName Error: euname of line NOT matched cpid file', line_1, file
-            wrong_result_list.append([line_num, 'euName Error: euname of line NOT matched cpid file', line_1])
-    return wrong_result_list
+            print line_num, 'euName Error: euname of line NOT matched cpid file', line_1, file
+            wrong_result_list1.append([line_num, 'euName Error: euname of line NOT matched cpid file', line_1])
+    return wrong_result_list1
 
 def find_cpidInfo_string(file, cpidInfo_table, euID_list, node_id_list):
+    # print file
     wrong_result_list = []
-    if get_re_object(file_name_regex_node, file):
-        node = file.split('\\')[-1].split('_')[1]
-        if node in node_id_list:
-            f = open(file, 'r')
-            line_num = 0
-            while True:
-                line = f.readline()
-                line_num += 1
-                file_table.update([])
-                if line:
-                    line_1 = line.strip('\n')
-                    line_list_1 = line.split(' ')
-                    try:
-                        check_list = (line_list_1[1]+'-'+line_list_1[3]).split('-')
-                        if check_list[1] != node:
-                            #print line_num, 'wrong node_id', line_1, file
-                            wrong_result_list.append([line_num, 'wrong node_id', line_1])
-                            continue
-                        else:
-                            result = find_cpidInfo_table_1(check_list[1], check_list[4], cpidInfo_table, euID_list)
-                            wrong_result_list = finial_check_cpidInfo(line_num,result, check_list, line_1)
-                    except:
-                        continue
-                else:
-                    break
-            # print wrong_result_list
-        else:
-            print 'The log node %s does not have cpidInfo file, so could not be checked' %file
-            wrong_result_list = [-1]  ###
+    file_1 = file.split('\\')[-1]
+    if get_re_object(cpidInfo_regex, file_1):
+        pass
     else:
-        f = open(file, 'r')
-        line_num = 0
-        while True:
-            line = f.readline()
-            line_num += 1
-            file_table.update([])
-            if line:
-                line_1 = line.strip('\n')
-                line_list_1 = line.split(' ')
-                try:
-                    check_list = (line_list_1[1]+'-'+line_list_1[3]).split('-')
-                    node = check_list[1]
-                    result = find_cpidInfo_table_1(check_list[1], check_list[4], cpidInfo_table, euID_list)
-                    wrong_result_list = finial_check_cpidInfo(line_num,result, check_list, line_1)
-                except:
-                    continue
+        try:
+            if get_re_object(file_name_regex_node, file_1) or get_re_object(file_name_regex_1, file.split('\\')[-2]) or get_re_object(file_name_regex, file.split('\\')[-2]):
+                if get_re_object(file_name_regex_node, file_1):
+                    node = file.split('\\')[-1].split('_')[1]
+                    #print node
+                    if node not in node_id_list:
+                        for item in node_id_list:
+                            if node[0:2] in item[0:2]:
+                                node = item
+
+                elif get_re_object(file_name_regex_1, file.split('\\')[-2]):
+                    node = file.split('\\')[-2].split('_')[1]
+                if node in node_id_list:
+                    f = open(file, 'r')
+                    line_num = 0
+                    # while True:
+                    for line in f:
+                        # line = f.readline()
+                        line_num += 1
+                        file_table.update([])
+                        if line:
+                            line_1 = line.strip('\n')
+                            line_list_1 = line.split(' ')
+                            try:
+                                check_list = (line_list_1[1]+'-'+line_list_1[3]).split('-')
+                                if len(check_list) == 6:
+                                    if check_list[1] != node:
+                                        wrong_result_list.append([line_num, 'Node id Error: Node id in file is not the same with'
+                                                                            ' the file title', line_1])
+                                        continue
+                                    else:
+                                        result = find_cpidInfo_from_cpidInfotable(node, check_list[4], cpidInfo_table, euID_list)
+                                        # wrong_result_list = finial_check_cpidInfo(file, line_num, result, check_list, line_1)
+                                        wrong_result_list.extend(finial_check_cpidInfo(file, line_num, result, check_list, line_1))
+                                elif len(check_list) == 4:                                    
+                                    result = find_cpidInfo_from_cpidInfotable(node, check_list[2], cpidInfo_table, euID_list)
+                                    # wrong_result_list = finial_check_cpidInfo(file, line_num, result, check_list, line_1)
+                                    wrong_result_list.extend(finial_check_cpidInfo(file, line_num, result, check_list, line_1))
+                                elif len(check_list) == 3:
+                                    #print 'the flag is not enable'
+                                    pass
+                            except:
+                                continue
+                        else:
+                            break
+                    f.close()
+                else:
+                    print 'The log node %s does not have cpidInfo file, so could not be checked' %file
+                    wrong_result_list = [-1]  ###
+            elif get_re_object(file_name_regex_2, file):
+                print 'Warning: There are not node and euname in file %s' %file
             else:
-                break
+
+                print 'Warning: did not check this file %s' %file
+        except:
+            print 'Warning!!!: There are not node and euname in file %s' %file
+    #print wrong_result_list
     return wrong_result_list
 
-def find_cpidInfo_table_1(node_id, euid, cpidInfo_table, euID_list):
+def find_cpidInfo_from_cpidInfotable(node_id, euid, cpidInfo_table, euID_list):
     if euid in euID_list:
         for item in cpidInfo_table[node_id]:
             if item['euID'][2:] == euid:
@@ -277,15 +323,15 @@ def find_cpidInfo_table_1(node_id, euid, cpidInfo_table, euID_list):
 
     # get_cpidInfo_dict_and_euid_node_list(targetdir, cpidInfo_file_list)
 
-    find_cpidInfo_string(filename, dictname, euID_list, node_id_list)
+    #find_cpidInfo_string(filename, dictname, euID_list, node_id_list)
 ####################################################################################
 '''
 Above codes made by Taylor
 '''
 ####################################################################################
 
-def case25_F(targetdir):
-    file_list_temp = search_folder_for_startup_runingtime_files(targetdir)
+def case25_F(targetdir,is_to_generate_txt_report_file=False):
+    file_list_temp,excluded_filename_list_temp = search_folder_for_startup_runingtime_files(targetdir)
     # print file_list_temp
     file_dict_requirement2 = {}
     file_dict_temp = {}
@@ -296,15 +342,44 @@ def case25_F(targetdir):
     tep_list_1 = tep_list[1]
     euID_list = tep_list_1[0]
     node_id_list = tep_list_1[1]
-    #find_cpidInfo_string(file, dictname, euID_list, node_id_list)
+    #find_cpidInfo_string(file, file_dict_requirement2, euID_list, node_id_list)
+
     for file_temp in file_list_temp:
         file_dict_temp[file_temp] = case25_S(file_temp,file_dict_requirement2)
-    return file_dict_temp
+
+    if is_to_generate_txt_report_file:
+        output1 = open(targetdir+'\\case25_F_result.txt','w+')
+        output1.write('Excluded file name list : ')
+        output1.write('\r\n')
+        output1.write('*'*150)
+        output1.write('\r\n')
+        for excludedfliename_temp in excluded_filename_list_temp:
+            output1.write('     '+excludedfliename_temp)
+            output1.write('\r\n')
+        output1.write('*'*150)
+        output1.write('\r\n'*3)
+
+        output1.write('Result which lines not match system log format after scaning folder : ')       
+        output1.write('\r\n')
+        for k in file_dict_temp.keys():
+            output1.write('*'*150)
+            output1.write('\r\n')
+            output1.write(k)
+            output1.write('\r\n')
+            output1.write('*'*150)
+            output1.write('\r\n')
+            for line_content in file_dict_temp.get(k):
+                output1.write(str(line_content))
+                output1.write('\r\n')           
+        output1.close()
+    else:
+        return file_dict_temp
 
 
 def search_folder_for_startup_runingtime_files(foldername,startup_pattern=r'.*startup.*',runtime_pattern=r'.*runtime.*'):
-    excluded_files_list = ['.shb','excel.xlsx','.zip','.csv','cpidInfo.log','gnss_logs_external_runtime','.shb.txt']
+    excluded_files_list = ['.shb','excel.xlsx','.zip','.csv','gnss_logs_external_runtime','.shb.txt','Runtime_RouteInfo.log','cpidInfo']
     # excluded_files_list = []
+    excluded_filename_list = []
     matched_file_list   = []
     is_exclued_boolean  = False
 
@@ -313,10 +388,10 @@ def search_folder_for_startup_runingtime_files(foldername,startup_pattern=r'.*st
             if re.search(startup_pattern,file) or re.search(runtime_pattern,file):
                 is_exclued_boolean = is_excluded(file,excluded_files_list)
                 if is_exclued_boolean:
-                        continue
+                    excluded_filename_list.append(os.path.join(root,file))
                 else:
                     matched_file_list.append(os.path.join(root,file))
-    return matched_file_list
+    return matched_file_list,excluded_filename_list
 
 def case25_S(file, dict_for_search,is_to_display_blank_lines=False):
     file_dict        =        {}
@@ -325,10 +400,11 @@ def case25_S(file, dict_for_search,is_to_display_blank_lines=False):
     logFile          =        open(file)
     is_RF_Module_File_Temp = is_RF_Module_file(file)
 
-    # print file
     ###below codes used for get eename from cpid files
-    cpid_file_list_temp      = find_cpidInfo_table(targetdir,cpidInfo_file_list)
-    eename_list_temp         = get_eename_from_cpid_file_without_duplication_values(cpid_file_list_temp)
+
+    # cpid_file_list_temp      = find_cpidInfo_table(targetdir,cpidInfo_file_list)
+    # eename_list_temp         = get_eename_from_cpid_file_without_duplication_values(cpid_file_list_temp)
+    eename_list_temp         = get_eename_from_cpid_file_without_duplication_values(dict_for_search)
 
     for raw_line in logFile:
         line_num    =        line_num + 1
@@ -358,7 +434,6 @@ def case25_S(file, dict_for_search,is_to_display_blank_lines=False):
             if log_number_checking(LOG_NUM) == 1:
                 pass
             else:
-                print 'hh'
                 file_list.append([line_num, log_number_checking(LOG_NUM),line])
 
 
@@ -399,7 +474,8 @@ def case25_S(file, dict_for_search,is_to_display_blank_lines=False):
                     """
                     EUNAME_checking
                     """
-    
+
+        # print file_list
     file_list.extend(find_cpidInfo_string(file, dict_for_search, euID_list, node_id_list))
 
 
@@ -578,36 +654,20 @@ if __name__ == '__main__':
     # blackboxFilePath=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS3244_1011_blackbox'
     # path=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\Snapshot_MRBTS-3244_FL17_FSM3_9999_161031_033736_eNB2213_20161102-1023\logs\SiteManager.log'
     targetdir=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA'
-    singlefile=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS3244_1011_runtime\runtime_BTSOM.log'
+    singlefile=r'D:\userdata\yongyu\Desktop\WMP_Support\automation_20161103\AfterTLDA\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS3244_1282_runtime.log'
 #     path=r'C:\Users\personalpc\Desktop\wmp support\AfterTLDA\extracted\LTEBTS\BTSLogFiles\BTS3244_1011_blackbox'
     # path=r'C:\Users\personalpc\Desktop\wmp support\AfterTLDA\extracted\snapshot.properties'
     # tep_list = get_cpidInfo_dict_and_euid_node_list(targetdir, cpidInfo_file_list)
     # file_dict_requirement2 = tep_list[0]
     # # a = find_cpidInfo_string(singlefile, file_dict_requirement2, euID_list, node_id_list)
-    # abc = case25_S(singlefile,file_dict_requirement2,True)
+    # abc = case25_S(singlefile,file_dict_requirement2)
     # for i in abc:
     #     print i
-    abcd = case25_F(targetdir)
-    for k in sorted(abcd.keys()):
-        print '*'*50
-        print k
-        for i in abcd.get(k):
-            print i
+
+    abcd = case25_F(targetdir,True)
+
+    # for k in sorted(abcd.keys()):
+    #     print k
+    #     for i in abcd.get(k):
+    #         print i
     # print len(abcd)
-    '''
-    for a,b in sorted(abcd.items()):
-    # for b in abc:
-        # if a.find('BTS3244_1253_runtime.log'):
-            print a, abcd.get(a)
-    # is_RF_Module_file(blackboxFilePath)
-    # print len(abc)
-    # print len(abc)
-    # for key in sorted(abc.keys()):
-        # print key,abc[key]
-    # compareTimeStamp(runtimeFilePath, blackboxFilePath)
-        # print allStringChecking(abc[key])
-        # print dateFormatChecking(abc[key])
-    # ab = find_cpidInfo_table(targetdir,cpidInfo_file_list)
-    # result = get_eename_from_cpid_file_without_duplication_values(ab,'120D')
-    # print result
-    '''
